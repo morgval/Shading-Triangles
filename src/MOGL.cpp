@@ -8,6 +8,11 @@
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 
+//GLM Math Header inclusions
+#include <glm/glm.hpp>
+#include <glm/glm/gtc/matrix_transform.hpp>
+#include <glm/glm/gtc/type_ptr.hpp>
+
 using namespace std;  //uses standard namespace
 
 #define WINDOW_TITLE "Modern OpenGL " //Macro for window title
@@ -17,184 +22,110 @@ using namespace std;  //uses standard namespace
 #define GLSL(Version, Source) "#version " #Version "\n" #Source
 #endif
 
-//Variables for window width and height
-int WindowWidth = 800, WindowHeight = 600;
-
-void UInitialize(int, char*[]);
-void UInitWindow(int, char*[]);
+//Function ProtoTypes
 void UResizeWindow(int, int);
 void URenderGraphics(void);
-void UCreateVBO(void);
-void UCreateShaders(void);
+void UCreateShader(void);
+void UCreateBuffers(void);
+
+
+/* Vertex Shader Program Source Code */
+const char * VertexShader = GLSL(440,
+		layout(location = 0) vec3 position; //Vertex data from vertex attrib pointer 0
+		layout(location = 1) vec3 color;  // color data from vertex attrib pointer 1
+		out vec3 mobileColor;   //declare a vec 4 variable that will reference the vertex colors passed into the vertex shader from the buffer.
+		uniform mat4 shaderTransform;  //4x4 matrix variable for transforming vertex data
+
+	void main()
+		{
+			gl_Position = shaderTransform * vec4(position, 1.0f); //transforms vertex data using matrix
+			mobileColor = color;  //references incoming color data
+		}
+);
+
+/* Fragment Shader Program Source Code */
+const char * FragmentShader = GLSL(440,
+		in vec3 mobileColor; //Variable to hold incoming color data from vertex shader
+		out vec4 gpuColor;  //Variable to pass color data to the GPU
+	void main()
+		{
+			gpuColor = vec4(mobileColor, 1.0);
+		}
+);
 
 
 //main function
 int main(int argc, char* argv[])
 {
-	UInitialize(argc, argv);  // Initialize the program
-	glutMainLoop(); //Starts the OpenGL loop in the background
-	exit(EXIT_SUCCESS); //Terminates the program successfully
-}
+	glutInit(&argc, argv);  // Initialize the program
+	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT)GGBA);
+	glutInitWindowSize(WindowWidth, WindowHeight);
+	glutCreateWindow(WINDOW_TITLE);
 
-// Implements the UInitialize function
-void UInitialize(int argc, char* argv[]) {
-	//glew status variable
-	GLenum GlewInitResult;
+	glutReshapeFunc(UResizeWindow);
 
-	UInitWindow(argc, argv); //Creates the window
+	glewExperimental = GL_TRUE;
+		if (glewInit() != GLEW_OK) {
+			std::cout << "Failed to initialize GLEw" << std::endl;
+			return -1;
+		}
 
-	//Checks glew status
-	GlewInitResult = glewInit();
+	UCreateShader();
 
-	if(GLEW_OK != GlewInitResult){
-		fprintf(stderr, "ERROR: %s\n", glewGetErrorString(GlewInitResult));
-		exit(EXIT_FAILURE);
-	}
+	UCreateBuffers();
 
-	//Display GPU OpenGL version
-	fprintf(stdout, "INFO: OpenGL Version: %s\n,", glGetString(GL_VERSION));
-
-	UCreateVBO();  //Calls the function to create the Vertex Buffer Object
-
-	UCreateShaders(); //Calls the function to create the Shader Program
+	//Use the Shader program
+	glUseProgram(shaderProgram);
 
 	//Sets the background color of the window
 	glClearColor (0.0f, 0.0f, 0.0f, 1.0f);
 
+	glutDisplayFunc(URenderGraphics);
+
+	glutMainLoop(); //Starts the OpenGL loop in the background
+	exit(EXIT_SUCCESS); //Terminates the program successfully
 }
 
-//Implements the UInitWindow function
-void UInitWindow(int argc, char* argv[]){
-	// Initialize freeglut
-	glutInit(&argc, argv);
-
-	//Sets the window size
-	glutInitWindowSize(WindowWidth, WindowHeight);
-
-	//Memory buffer setup for display
-	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
-
-	//Creates a window with the macro placeholder title
-	glutCreateWindow(WINDOW_TITLE);
-
-	glutReshapeFunc(UResizeWindow);  //Called when the window is resized
-	glutDisplayFunc(URenderGraphics); //REnders graphics on the screen
-
-}
-
-//Implements the UResizeWindow function
-void UResizeWindow(int Width, int Height){
-	glViewport(0, 0, Width, Height);
+/*Resizes the window*/
+void UResizeWindow(int w, int h) {
+	WindowWidth = w;
+	WindowHeight = h;
+	glViewport(0, 0, WindowWidth, WindowHeight);
 }
 
 //Implements the URenderGraphics function
 void URenderGraphics(void) {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  //Clears the screen
 
-	/* Creates the triangle */
-	GLuint totalVerticies = 6; //Specifies the number of verticies for the triangle
-	//glDrawArrays(GL_TRIANGLES, 0, totalVerticies); //Draws the Triangle
+	glBindVertexArray(VAO);  //Activate the vertex array object vefore rendering and transforming them
+
+	//Declares a 4x4 identity matrix unbiform variable to handle transormations
+	glm::mat4 currentTransform;
+
+	//Moves the 0.5 in y
+	currentTransform = glm::translate(currentTransform,  glm::vec3(0.0f, 0.5f, 0.0f));
+
+	//Rotates shade 45 degrees on the z axis
+	currentTransform = glm::rotate(currentTransform, 45.0f, glm::vec3(0.0f, 0.0f, 1.0f));
+
+	//Scales the shape down by half it's original size
+	currentTransform = glm::scale(currentTransform, glm::vec3(0.5f, 0.5f, 0.5f));
+
+	/* Sends transform information to the Vertex shader */
+	GLuint transformLocation = glGetUniformLocation(shaderProgram, "shaderTransform");
+	glUniformMatrix4fv(transformLocation, 1, GL_FALSE, glm::value_ptr(currentTransform));
 
 	//Draw the triangles using the indices
-	glDrawElements(GL_TRIANGLES, totalVerticies, GL_UNSIGNED_SHORT, NULL);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, NULL);
+
+	glBindVertexArray(0);  //Deactivate the Vertex Array Object
 
 	glutSwapBuffers();  //Flips the back buffer with the front buffer ever frame
 }
 
-//Implements the CreateVBO function
-void UCreateVBO(void) {
-	//Specifies coordinates for triangle verticies on x and y
-	GLfloat verts[]
-	{
-	/* INdices will be 0, 1, 2, 3, 4, 1
-	 * index 1 will be shared by both triangles
-	 */
-			// index 0
-		-0.5f, 0.0f, //top-center of the screen
-		1.0f, 0.0f, 0.0f, 1.0f, //Red vertex
-
-			// index 1
-		0.0f, -1.0f, //bottom-left of the screen
-		0.0f, 1.0f, 0.0f, 1.0f, //Green vertex
-
-			// index 2
-		-1.0f, -1.0f,  //bottom-right of the screen
-		0.0f, 0.0f, 1.0f, 1.0f, //Blue vertex
-
-			// index 3
-		0.5f, 0.0f, //top center of the screen
-		1.0f, 0.0f, 0.0f, 1.0f, //Red vertex
-
-			// index 4
-		1.0f, -1.0f, //bottom-left of the screen
-		0.0f, 1.0f, 0.0f, 1.0f, //Green vertex
-
-	//	0.0f, -1.0f, //bottom-right of the screen
-	//	0.0f, 0.0f, 1.0f, 1.0f, //Blue vertex
-
-	};
-
-	//Stores the size of the verts array number of the coordinates needed for the triangle
-	float numVerticies = sizeof(verts);
-
-	GLuint myBufferID; //Variable for vertex buffer object id
-	glGenBuffers(1, &myBufferID); //Creates 1 buffer
-	glBindBuffer(GL_ARRAY_BUFFER, myBufferID); //Activates the buffer
-	glBufferData(GL_ARRAY_BUFFER, numVerticies, verts, GL_STATIC_DRAW); //Sends vertex or coordinate data to the GPU
-
-	/* Creates the vertex Attribute Pointer */
-	GLuint floatsPerVertex = 2;  //Number of coordinates per vertex
-	glEnableVertexAttribArray(0);  //Specifies the initial position of the coordinates in the buffer
-
-	/*Strides between vertex coordinates is 6 (x, y, r, g, b, a).  A tightly packed stride is 0. */
-	GLint vertexStride = sizeof(float) * 6;
-
-	glVertexAttribPointer(0, floatsPerVertex, GL_FLOAT, GL_FALSE, 0, 0);
-
-	glEnableVertexAttribArray(1); //specifies position 1 for the color values in the buffer
-
-	GLint colorStride = sizeof(float) * 6;  //The number of floats vefore each color is 6
-
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, colorStride, (char*)(sizeof(float)* 2));
-
-	//Creates a buffer object for the indices
-	GLushort indicies[] = {0, 1, 2, 3, 4, 1}; //USing index 1 twice
-	float numIndicies = sizeof(indicies);
-	GLuint indexBufferID;
-	glGenBuffers(1, &indexBufferID);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, numIndicies, indicies, GL_STATIC_DRAW);
-
-}
-
-/* Vertex Shader Program Source Code */
-const char * VertexShader = GLSL(440,
-		in layout(location = 0) vec4 vertex_Position; //Recieve vertex coordinates from attribute 0
-	/* Get the vertex colors from the Vertex Buffer Object */
-		in layout(location = 1) vec4 colorfromVBO;  //for attribute 1 expect vec(4) floats passed into the Vertex shader.
-		out vec4 colorFromVShader;   //declare a vec 4 variable that will reference the vertex colors passed into the vertex shader from the buffer.
-
-	void main()
-		{
-			gl_Position = vertex_Position; //Sends vertex positions to gl_position vec 4
-			vertex_Color = colorFromVShader;  //Send the vertex colors to the GPU
-		}
-);
-
-/* Fragment Shader Program Source Code */
-const char * FragmentShader = GLSL(440,
-		in vec4 colorFromVShader;  //Vertex colors from the vertex shader
-		out vec4 vertex_Color;  //vec4 variable that will reference the vertex colors
-	void main()
-		{
-			//gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); //Sets the pixels / fragments of the triangle to green
-			vertex_Color = colorFromVShader;
-		}
-);
-
 
 //Implement the UCreateShadrs function
-void UCreateShaders(void) {
+void UCreateShader(void) {
 	//Create a Shader program object
 	GLuint ProgramId = glCreateProgram();
 
@@ -212,6 +143,54 @@ void UCreateShaders(void) {
 	glAttachShader(ProgramId, fragmentShaderId);
 
 	glLinkProgram(ProgramId);  //Links the shader program
-	glUseProgram(ProgramId);  //USes the shader program
+	//glUseProgram(ProgramId);  //USes the shader program
+
+	glDeleteShader(VertexShader);
+	glDeleteShader(FragmentShader);
+
+}
+
+
+//Creates the Buffer and Array Objects
+void UCreateBuffers(void) {
+	//Specifies coordinates for triangle verticies on x and y
+	GLfloat vertices \[] =
+	{
+			//Vertex Positions    //Colors
+			0.5f, 0.5f, 0.0f,    1.0f, 0.0f, 0.0f,  //Top Right Vertex 0
+			0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,  //Bottom Right Vertex 1
+			-0.5f, -0.5f, 0.0f,  0.0f, 0.0f, 1.0f,   //Bottom Left Vertex 2
+			-0.5f, 0.5f, 0.0f,    1.0f, 0.0f, 1.0f   //TopLeft vertex 3
+	};
+
+	//index data to share position data
+	GLuint indices [] = {
+			0, 1, 3, //Triangle 1
+			1, 2, 3 //Triangle 2
+	};
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO); //Creates 1 buffer
+	glGenBuffers(1, &EBO);
+
+	glBindVertexArray(VAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO); //Activates the buffer
+	glBufferData(GL_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW); //Sends vertex or coordinate data to the GPU
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)0);
+	glEnableVertexAttribArray(0);  //Specifies the initial position of the coordinates in the buffer
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat)));
+	glEnableVertexAttribArray(1);  //Specifies the initial position of the coordinates in the buffer
+
+	/*Strides between vertex coordinates is 6 (x, y, r, g, b, a).  A tightly packed stride is 0. */
+	GLint vertexStride = sizeof(float) * 6;
+
+	glVertexAttribPointer(0, floatsPerVertex, GL_FLOAT, GL_FALSE, 0, 0);
+
+	glEnableVertexAttribArray(1); //specifies position 1 for the color values in the buffer
+
+	glBindVertexArray(0);  //Deactivates the VAO
 }
 
